@@ -9,6 +9,7 @@ using DaggerfallWorkshop.Game.UserInterfaceWindows;
 
 using Wenzil.Console;
 using System.IO;
+using DaggerfallWorkshop.Game.UserInterface;
 
 namespace SpellEditorMod
 {
@@ -94,8 +95,7 @@ namespace SpellEditorMod
                 listPicker.ListBox.AddItems(modTitles);
                 listPicker.OnItemPicked += (index, modTitle) =>
                 {
-                    listPicker.PopWindow();
-                    OpenSpellEditor(modTitle);
+                    OpenSpellEditor(modTitle, listPicker);
                 };
                 userInterfaceManager.PushWindow(listPicker);
             }
@@ -113,11 +113,11 @@ namespace SpellEditorMod
                 return false;
             }
 
-            private static void OpenSpellEditor(string modTitle)
+            private static void OpenSpellEditor(string modTitle, IUserInterfaceWindow previousWindow = null)
             {
                 var userInterfaceManager = DaggerfallUI.Instance.UserInterfaceManager;                
-                var listPicker = new SpellEditorSpellPicker(modTitle, userInterfaceManager);
-                userInterfaceManager.PushWindow(listPicker);
+                var spellPicker = new SpellEditorSpellPicker(modTitle, userInterfaceManager, previousWindow);
+                userInterfaceManager.PushWindow(spellPicker);
             }
         }
 #endif

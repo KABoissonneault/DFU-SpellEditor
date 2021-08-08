@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using DaggerfallConnect.Arena2;
 using DaggerfallWorkshop.Game;
 using DaggerfallWorkshop.Game.UserInterface;
 using DaggerfallWorkshop.Game.UserInterfaceWindows;
@@ -11,6 +12,8 @@ using static DaggerfallConnect.Save.SpellRecord;
 using FullSerializer;
 
 using UnityEngine;
+using DaggerfallWorkshop.Utility;
+using static DaggerfallWorkshop.Game.UserInterfaceWindows.DaggerfallMessageBox;
 
 namespace SpellEditorMod
 {
@@ -18,7 +21,8 @@ namespace SpellEditorMod
     {
         readonly string ModTitle;
 
-        Dictionary<int, fsData> spellRecords;
+        Dictionary<int, fsData> spellRecords = null;
+        Dictionary<int, SpellRecordData> classicSpellRecords;
 
         Panel panelButtons;
 
@@ -26,10 +30,47 @@ namespace SpellEditorMod
         Button buttonRevert;
         Button buttonSave;
 
+        TextBox textNextSpellIndex;
+
+        int modNextSpellIndex = -1;
+
         public SpellEditorSpellPicker(string modTitle, IUserInterfaceManager uiManager, IUserInterfaceWindow previousWindow = null)
             : base(uiManager, previousWindow)
         {
             ModTitle = modTitle;
+        }
+
+        public override void CancelWindow()
+        {
+            if(HasUnsavedChanges())
+            {
+                DaggerfallMessageBox mb = new DaggerfallMessageBox(uiManager, this);
+                mb.SetTextTokens(DaggerfallUnity.TextProvider.CreateTokens(TextFile.Formatting.JustifyLeft, "Editor has unsaved changes. Save before quitting?"));
+                mb.AddButton(MessageBoxButtons.Yes);
+                mb.AddButton(MessageBoxButtons.No);
+                mb.AddButton(MessageBoxButtons.Cancel);
+                mb.OnButtonClick += CancelWindow_OnButtonClick;
+                mb.Show();
+            }
+            else
+            {
+                base.CancelWindow();
+            }
+        }
+
+        private void CancelWindow_OnButtonClick(DaggerfallMessageBox sender, MessageBoxButtons messageBoxButton)
+        {
+            sender.CloseWindow();
+
+            if(messageBoxButton == MessageBoxButtons.Yes)
+            {
+                Save();
+                CloseWindow();
+            }
+            else if(messageBoxButton == MessageBoxButtons.No)
+            {
+                CloseWindow();
+            }
         }
 
         protected override void Setup()
@@ -44,36 +85,87 @@ namespace SpellEditorMod
         private void SetupSpells()
         {
             Mod mod = ModManager.Instance.GetMod(ModTitle);
-            string spellRecordsPath = mod.ModInfo.Files.Find(file => Path.GetFileName(file) == "SpellRecords.json");
-            if (!string.IsNullOrEmpty(spellRecordsPath))
-            {
-                spellRecordsPath = spellRecordsPath.Replace("Assets/Game/Mods/", "");
-                string spellRecordsFullPath = Path.Combine(ModManager.EditorModsDirectory, spellRecordsPath);
-                List<fsData> listRecords = fsJsonParser.Parse(File.ReadAllText(spellRecordsFullPath)).AsList;
-                spellRecords = listRecords.ToDictionary(data => (int)data.AsDictionary["index"].AsInt64);
-            }
 
-            var standardSpells = GameManager.Instance.EntityEffectBroker.StandardSpells;
-            foreach (SpellRecordData standardSpell in standardSpells)
+#if UNITY_EDITOR
+            var dfModFile = mod.ModInfo.Files.Find(filepath => Path.GetFileName(filepath).EndsWith("dfmod.json"));
+            if (!string.IsNullOrEmpty(dfModFile))
             {
-                bool isClassic = standardSpell.index < 100;
-                if (isClassic)
+                var spellRecordsFullPath = Path.Combine(ModManager.EditorModsDirectory,
+                    dfModFile.Replace("Assets/Game/Mods/", "").Replace(Path.GetFileName(dfModFile), ""),
+                    "SpellRecords.json");
+                if (File.Exists(spellRecordsFullPath))
                 {
-                    if (spellRecords != null && spellRecords.TryGetValue(standardSpell.index, out fsData data))
-                    {
-                        ListBox.AddItem(standardSpell.spellName + " (*)", -1, standardSpell.index);
-                    }
-                    else
-                    {
-                        ListBox.AddItem(standardSpell.spellName, -1, standardSpell.index);
-                    }
-
+                    List<fsData> listRecords = fsJsonParser.Parse(File.ReadAllText(spellRecordsFullPath)).AsList;
+                    spellRecords = listRecords.ToDictionary(data => (int)data.AsDictionary["index"].AsInt64);
                 }
                 else
                 {
-                    ListBox.AddItem("+ " + standardSpell.spellName, -1, standardSpell.index);
+                    spellRecords = new Dictionary<int, fsData>();
                 }
             }
+            else
+            {
+                DaggerfallMessageBox mb = new DaggerfallMessageBox(uiManager, this);
+                mb.SetTextTokens(DaggerfallUnity.TextProvider.CreateTokens(TextFile.Formatting.JustifyLeft, $"{Path.GetFileName(dfModFile)} not found listed in its own files. Save mod settings correctly before use."));
+                mb.ClickAnywhereToClose = true;
+                mb.Show();
+
+                mb.OnClose += Error_OnClose;
+                return;
+            }
+#endif // UNITY_EDITOR
+
+            var classicSpells = DaggerfallSpellReader.ReadSpellsFile(Path.Combine(DaggerfallUnity.Arena2Path, DaggerfallSpellReader.DEFAULT_FILENAME)).Where(spell => spell.spellName != "Holy Touch");
+
+            foreach (SpellRecordData classicSpell in classicSpells)
+            {
+                if (spellRecords.TryGetValue(classicSpell.index, out fsData data))
+                {
+                    ListBox.AddItem(classicSpell.spellName + " (*)", -1, classicSpell.index);
+                }
+                else
+                {
+                    ListBox.AddItem(classicSpell.spellName, -1, classicSpell.index);
+                }
+            }
+
+            classicSpellRecords = classicSpells.ToDictionary(spell => spell.index);
+
+            var addedSpells = GameManager.Instance.EntityEffectBroker.StandardSpells.Where(record => record.index > 99);
+            modNextSpellIndex = 100;
+            foreach (SpellRecordData addedSpell in addedSpells)
+            {
+                if (spellRecords != null && spellRecords.TryGetValue(addedSpell.index, out fsData data))
+                {
+                    ListBox.AddItem("+ " + addedSpell.spellName, -1, addedSpell.index);
+                    modNextSpellIndex = Mathf.Max(modNextSpellIndex, addedSpell.index + 1);
+                }
+                else
+                {
+                    ListBox.AddItem("~ " + addedSpell.spellName, out ListBox.ListItem newItem, -1, addedSpell.index);
+                    newItem.textColor = Color.gray;
+                    newItem.selectedTextColor = Color.gray;
+                    newItem.highlightedTextColor = Color.gray;
+                    newItem.highlightedSelectedTextColor = Color.gray;
+                }
+            }            
+        }
+
+        private void Error_OnClose()
+        {
+            CloseWindow();
+        }
+
+        private bool IsDisabled(int spellIndex)
+        {
+            if (spellIndex < 100)
+                return false;
+
+            var standardSpell = GameManager.Instance.EntityEffectBroker.StandardSpells.FirstOrDefault(record => record.index == spellIndex);
+            if (standardSpell == null)
+                return false;
+
+            return spellRecords == null || !spellRecords.TryGetValue(spellIndex, out fsData _);
         }
 
         private void SetupButtons()
@@ -89,7 +181,8 @@ namespace SpellEditorMod
             buttonNew.Hotkey = new HotkeySequence(KeyCode.N, HotkeySequence.KeyModifiers.Ctrl);
 
             buttonRevert = DaggerfallUI.AddButton(new Vector2(40, 0), new Vector2(32, 10), panelButtons);
-            buttonRevert.Label.Text = "Revert";
+            buttonRevert.Label.Text = "Remove";
+            buttonRevert.Label.TextColor = Color.gray / 2.0f;
             buttonRevert.Label.VerticalAlignment = VerticalAlignment.Middle;
             buttonRevert.BackgroundColor = Color.gray;
             buttonRevert.Hotkey = new HotkeySequence(KeyCode.R, HotkeySequence.KeyModifiers.Ctrl);
@@ -99,33 +192,154 @@ namespace SpellEditorMod
             buttonSave.Label.VerticalAlignment = VerticalAlignment.Middle;
             buttonSave.BackgroundColor = Color.gray;
             buttonSave.Hotkey = new HotkeySequence(KeyCode.S, HotkeySequence.KeyModifiers.Ctrl);
+
+            textNextSpellIndex = DaggerfallUI.AddTextBoxWithFocus(new Rect(new Vector2(128, 0), new Vector2(32, 10)), string.Empty, panelButtons, 4);
+            textNextSpellIndex.BackgroundColor = Color.gray;
+            textNextSpellIndex.Numeric = true;
+            textNextSpellIndex.NumericMode = NumericMode.Natural;
+            textNextSpellIndex.OnType += TextNextSpellIndex_OnType;
+            textNextSpellIndex.OnKeyboardEvent += TextNextSpellIndex_OnKeyboardEvent;
+            textNextSpellIndex.Text = modNextSpellIndex.ToString();
+            textNextSpellIndex.VerticalAlignment = VerticalAlignment.Middle;
+            textNextSpellIndex.TextOffset = 2;
+
+            DaggerfallUI.AddTextLabel(DaggerfallUI.DefaultFont, new Vector2(0, -8), "New Spell Index", textNextSpellIndex);
+        }
+
+        private void TextNextSpellIndex_OnKeyboardEvent(BaseScreenComponent sender, Event keyboardEvent)
+        {
+            int nextId = int.Parse(textNextSpellIndex.ResultText);
+            if (nextId < 100 || IsDisabled(nextId))
+            {
+                textNextSpellIndex.Cursor.Color = Color.red;
+                SetNewDisabled();
+            }
+            else
+            {
+                textNextSpellIndex.Cursor.Color = DaggerfallUI.DaggerfallDefaultTextCursorColor;
+                modNextSpellIndex = nextId;
+                SetNewEnabled();
+            }
+        }
+
+        private void TextNextSpellIndex_OnType()
+        {
+            int nextId = int.Parse(textNextSpellIndex.ResultText);
+            if(nextId < 100 || IsDisabled(nextId))
+            {
+                textNextSpellIndex.Cursor.Color = Color.red;
+                SetNewDisabled();
+            }
+            else
+            {
+                textNextSpellIndex.Cursor.Color = DaggerfallUI.DaggerfallDefaultTextCursorColor;
+                modNextSpellIndex = nextId;
+                SetNewEnabled();
+            }
+        }
+
+        private void IncrementModIndex()
+        {
+            while (IsDisabled(++modNextSpellIndex)) ;
+
+            textNextSpellIndex.Text = modNextSpellIndex.ToString();
         }
 
         private void SetupEvents()
         {
             ListBox.OnSelectItem += ListBox_OnSelectItem;
+            ListBox.OnUseSelectedItem += ListBox_OnUseSelectedItem;
             buttonNew.OnMouseClick += ButtonNew_OnMouseClick;
-            SetRevertDisabled();
+
+            if(spellRecords.ContainsKey((int)ListBox.SelectedValue.tag))
+                SetRevertEnabled();
+            else
+                SetRevertDisabled();
+
+            SetSaveDisabled();
+        }
+
+        private void SetNewDisabled()
+        {
+            if (buttonNew.Label.TextColor == Color.gray / 2.0f)
+                return;
+
+            buttonNew.Label.TextColor = Color.gray / 2.0f;
+            buttonNew.OnMouseClick -= ButtonNew_OnMouseClick;
+        }
+
+        private void SetNewEnabled()
+        {
+            if (buttonNew.Label.TextColor == DaggerfallUI.DaggerfallDefaultTextColor)
+                return;
+
+            buttonNew.Label.TextColor = DaggerfallUI.DaggerfallDefaultTextColor;
+            buttonNew.OnMouseClick += ButtonNew_OnMouseClick;
         }
 
         private void ButtonNew_OnMouseClick(BaseScreenComponent sender, Vector2 position)
         {
             var userInterfaceManager = DaggerfallUI.Instance.UserInterfaceManager;
 
-            var NamePopup = new DaggerfallInputMessageBox(userInterfaceManager, this);
-            NamePopup.OnGotUserInput += NamePopup_OnGotUserInput;
+            Dictionary<string, fsData> spellProperties = new Dictionary<string, fsData>();
+            spellProperties["index"] = new fsData(modNextSpellIndex);
+            var newSpell = new fsData(spellProperties);
 
-            userInterfaceManager.PushWindow(NamePopup);
+            var BundleEditor = new SpellBundleEditor(userInterfaceManager, this);
+            BundleEditor.SpellData = newSpell;
+            BundleEditor.OnSpellConfirmed += BundleEditor_OnNewSpellConfirmed;
+
+            userInterfaceManager.PushWindow(BundleEditor);
         }
 
-        private void NamePopup_OnGotUserInput(DaggerfallInputMessageBox sender, string input)
+        private void BundleEditor_OnNewSpellConfirmed(fsData spellData)
         {
-            //spellRecords.
+            SetSaveEnabled();
+            spellRecords.Add(modNextSpellIndex, spellData);
+
+            bool added = false;
+            for(int i = 0; i < ListBox.ListItems.Count; ++i)
+            {
+                if((int)ListBox.ListItems[i].tag > modNextSpellIndex)
+                {
+                    added = true;
+                    ListBox.AddItem("+ " + spellData.AsDictionary["spellName"].AsString, i, modNextSpellIndex);
+                    break;
+                }
+            }
+
+            if(!added)
+            {
+                ListBox.AddItem("+ " + spellData.AsDictionary["spellName"].AsString, -1, modNextSpellIndex);
+            }
+
+            IncrementModIndex();
+        }
+
+        private void BundleEditor_OnEditSpellConfirmed(fsData spellData, int spellIndex)
+        {
+            SetSaveEnabled();
+
+            if((int)ListBox.SelectedValue.tag == spellIndex)
+                SetRevertEnabled();
+
+            spellRecords[spellIndex] = spellData;
+
+            var item = ListBox.ListItems.Find(i => (int)i.tag == spellIndex);
+            item.textLabel.Text = spellData.AsDictionary["spellName"].AsString + " (*)";
         }
 
         private void ListBox_OnSelectItem()
         {
+            if (ListBox.SelectedIndex == -1)
+                return;
+
             var spellIndex = (int)ListBox.SelectedValue.tag;
+            if(IsDisabled(spellIndex))
+            {
+                ListBox.SelectNone();
+                return;
+            }
 
             if(spellRecords.ContainsKey(spellIndex))
             {
@@ -137,14 +351,78 @@ namespace SpellEditorMod
             }
         }
 
+        private void ListBox_OnUseSelectedItem()
+        {
+            var spellIndex = (int)ListBox.SelectedValue.tag;
+            if (IsDisabled(spellIndex))
+                return;
+
+            var userInterfaceManager = DaggerfallUI.Instance.UserInterfaceManager;
+            var BundleEditor = new SpellBundleEditor(userInterfaceManager, this);
+            if (spellRecords != null && spellRecords.TryGetValue(spellIndex, out fsData existingData))
+            {
+                BundleEditor.SpellData = existingData;
+            }
+            else
+            {
+                var newData = fsData.CreateDictionary();
+                var fields = newData.AsDictionary;
+
+                var classicSpellRecord = classicSpellRecords[spellIndex];
+
+                fields["spellName"] = new fsData(classicSpellRecord.spellName);
+                fields["element"] = new fsData(classicSpellRecord.element);
+                fields["rangeType"] = new fsData(classicSpellRecord.rangeType);
+                fields["cost"] = new fsData(classicSpellRecord.cost);
+                fields["index"] = new fsData(classicSpellRecord.index);
+                fields["icon"] = new fsData(classicSpellRecord.icon);
+                var effects = fields["effects"] = fsData.CreateList();
+                foreach(EffectRecordData effectRecord in classicSpellRecord.effects)
+                {
+                    if (effectRecord.type == -1)
+                        continue;
+
+                    var effect = fsData.CreateDictionary();
+
+                    effect.AsDictionary.Add("type", new fsData(effectRecord.type));
+                    effect.AsDictionary.Add("subType", new fsData(effectRecord.subType));
+                    effect.AsDictionary.Add("durationBase", new fsData(effectRecord.durationBase));
+                    effect.AsDictionary.Add("durationMod", new fsData(effectRecord.durationMod));
+                    effect.AsDictionary.Add("durationPerLevel", new fsData(effectRecord.durationPerLevel));
+                    effect.AsDictionary.Add("chanceBase", new fsData(effectRecord.chanceBase));
+                    effect.AsDictionary.Add("chanceMod", new fsData(effectRecord.chanceMod));
+                    effect.AsDictionary.Add("chancePerLevel", new fsData(effectRecord.chancePerLevel));
+                    effect.AsDictionary.Add("magnitudeBaseLow", new fsData(effectRecord.magnitudeBaseLow));
+                    effect.AsDictionary.Add("magnitudeBaseHigh", new fsData(effectRecord.magnitudeBaseHigh));
+                    effect.AsDictionary.Add("magnitudeLevelBase", new fsData(effectRecord.magnitudeLevelBase));
+                    effect.AsDictionary.Add("magnitudeLevelHigh", new fsData(effectRecord.magnitudeLevelHigh));
+                    effect.AsDictionary.Add("magnitudePerLevel", new fsData(effectRecord.magnitudePerLevel));
+
+                    effects.AsList.Add(effect);
+                }
+
+                BundleEditor.SpellData = newData;
+            }            
+            
+            BundleEditor.OnSpellConfirmed += record => BundleEditor_OnEditSpellConfirmed(record, spellIndex);
+
+            userInterfaceManager.PushWindow(BundleEditor);
+        }
+
         private void SetRevertDisabled()
         {
+            if (buttonRevert.Label.TextColor == Color.gray / 2.0f)
+                return;
+
             buttonRevert.Label.TextColor = Color.gray / 2.0f;
             buttonRevert.OnMouseClick -= OnRevertClick;
         }
 
         private void SetRevertEnabled()
         {
+            if (buttonRevert.Label.TextColor == DaggerfallUI.DaggerfallDefaultTextColor)
+                return;
+
             buttonRevert.Label.TextColor = DaggerfallUI.DaggerfallDefaultTextColor;
             buttonRevert.OnMouseClick += OnRevertClick;
         }
@@ -172,6 +450,57 @@ namespace SpellEditorMod
             }
 
             SetRevertDisabled();
+            SetSaveEnabled();
+        }
+
+        private void ButtonSave_OnMouseClick(BaseScreenComponent sender, Vector2 position)
+        {
+            Save();
+        }
+
+        void Save()
+        {
+#if UNITY_EDITOR
+            Mod mod = ModManager.Instance.GetMod(ModTitle);
+            var dfModFile = mod.ModInfo.Files.Find(filepath => Path.GetFileName(filepath).EndsWith("dfmod.json"));
+
+            var modFolder = dfModFile.Replace("Assets/Game/Mods/", "");
+            modFolder = modFolder.Replace(Path.GetFileName(modFolder), "");
+
+            string spellRecordsFullPath = Path.Combine(ModManager.EditorModsDirectory, modFolder, "SpellRecords.json");
+            using (var FileWriter = File.CreateText(spellRecordsFullPath))
+            {
+                fsData fileOutput = fsData.CreateList();
+                fileOutput.AsList.AddRange(spellRecords.Values);
+
+                fsJsonPrinter.PrettyJson(fileOutput, FileWriter);
+            }
+
+            SetSaveDisabled();
+#endif
+        }
+
+        void SetSaveEnabled()
+        {
+            if (buttonSave.Label.TextColor == DaggerfallUI.DaggerfallDefaultTextColor)
+                return;
+
+            buttonSave.Label.TextColor = DaggerfallUI.DaggerfallDefaultTextColor;
+            buttonSave.OnMouseClick += ButtonSave_OnMouseClick;
+        }
+
+        void SetSaveDisabled()
+        {
+            if (buttonSave.Label.TextColor == Color.gray / 2.0f)
+                return;
+
+            buttonSave.Label.TextColor = Color.gray / 2.0f;
+            buttonSave.OnMouseClick -= ButtonSave_OnMouseClick;
+        }
+
+        bool HasUnsavedChanges()
+        {
+            return buttonSave.Label.TextColor == DaggerfallUI.DaggerfallDefaultTextColor;
         }
     }
 }

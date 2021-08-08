@@ -3,11 +3,13 @@
     "ModVersion": "0.1",
     "ModAuthor": "Kab the Bird Ranger",
     "ContactInfo": "kaboissonneault@gmail.com",
-    "DFUnity_Version": "0.11.4",
+    "DFUnity_Version": "0.11.7",
     "ModDescription": "Edit standard spells from within the game",
     "GUID": "04343969-58b9-47e6-be39-242aaef4d909",
     "Files": [
         "Assets/Game/Mods/SpellEditor/SpellEditor.dfmod.json",
-        "Assets/Game/Mods/SpellEditor/Scripts/SpellEditorMod.cs"
+        "Assets/Game/Mods/SpellEditor/Scripts/SpellEditorMod.cs",
+        "Assets/Game/Mods/SpellEditor/Textures/Img/SpellBundleEditorMask.png",
+        "Assets/Game/Mods/SpellEditor/Textures/Img/SpellEffectEditorMask.png"
     ]
 }

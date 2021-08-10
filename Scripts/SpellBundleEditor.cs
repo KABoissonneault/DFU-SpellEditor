@@ -205,18 +205,6 @@ namespace SpellEditorMod
             SetDefaults();
         }
 
-        public override void Update()
-        {
-            base.Update();
-
-            if(uiManager.TopWindow == this
-                && DaggerfallUI.Instance.HotkeySequenceProcessed == HotkeySequence.HotkeySequenceProcessStatus.NotFound
-                && Input.GetKeyUp(KeyCode.Return))
-            {
-                BuyButton_OnMouseClick(null, new Vector2(0, 0));
-            }
-        }
-
         void SetExistingSpell()
         {
             if (SpellData == null)
@@ -543,10 +531,7 @@ namespace SpellEditorMod
             tipButton.OnMouseEnter += TipButton_OnMouseEnter;
             tipButton.OnMouseLeave += TipButton_OnMouseLeave;
             tipButton.OnMouseClick += handler;
-            if (button != DaggerfallShortcut.Buttons.SpellMakerBuySpell)
-            {
-                tipButton.Hotkey = DaggerfallShortcut.GetBinding(button);
-            }
+            tipButton.Hotkey = DaggerfallShortcut.GetBinding(button);
             tipButton.Tag = tipID;
 
             return tipButton;
@@ -1281,18 +1266,18 @@ namespace SpellEditorMod
             string tip = (string)sender.Tag;
             if (tip == "buySpell")
             {
-                tipLabel.Text = "Confirm Changes (Return)";
+                tipLabel.Text = "Confirm Changes";
             }
             else
             {
                 tipLabel.Text = TextManager.Instance.GetLocalizedText(sender.Tag as string);
+            }
 
-                if (sender is Button)
-                {
-                    Button buttonSender = (Button)sender;
-                    if (buttonSender.Hotkey != HotkeySequence.None)
-                        tipLabel.Text += string.Format(" ({0})", buttonSender.Hotkey);
-                }
+            if (sender is Button)
+            {
+                Button buttonSender = (Button)sender;
+                if (buttonSender.Hotkey != HotkeySequence.None)
+                    tipLabel.Text += string.Format(" ({0})", buttonSender.Hotkey);
             }
         }
 

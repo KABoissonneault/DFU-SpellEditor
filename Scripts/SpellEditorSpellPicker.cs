@@ -121,33 +121,24 @@ namespace SpellEditorMod
             {
                 if (spellRecords.TryGetValue(classicSpell.index, out fsData data))
                 {
-                    ListBox.AddItem(classicSpell.spellName + " (*)", -1, classicSpell.index);
+                    ListBox.AddItem($"[{classicSpell.index}] {classicSpell.spellName} (*)", -1, classicSpell.index);
                 }
                 else
                 {
-                    ListBox.AddItem(classicSpell.spellName, -1, classicSpell.index);
+                    ListBox.AddItem($"[{classicSpell.index}] {classicSpell.spellName}", -1, classicSpell.index);
                 }
             }
 
             classicSpellRecords = classicSpells.ToDictionary(spell => spell.index);
 
-            var addedSpells = GameManager.Instance.EntityEffectBroker.StandardSpells.Where(record => record.index > 99);
+            var addedSpells = spellRecords.Where(kvp => kvp.Key > 99).Select(kvp => kvp.Value);
             modNextSpellIndex = 100;
-            foreach (SpellRecordData addedSpell in addedSpells)
+            foreach (fsData addedSpell in addedSpells)
             {
-                if (spellRecords != null && spellRecords.TryGetValue(addedSpell.index, out fsData data))
-                {
-                    ListBox.AddItem("+ " + addedSpell.spellName, -1, addedSpell.index);
-                    modNextSpellIndex = Mathf.Max(modNextSpellIndex, addedSpell.index + 1);
-                }
-                else
-                {
-                    ListBox.AddItem("~ " + addedSpell.spellName, out ListBox.ListItem newItem, -1, addedSpell.index);
-                    newItem.textColor = Color.gray;
-                    newItem.selectedTextColor = Color.gray;
-                    newItem.highlightedTextColor = Color.gray;
-                    newItem.highlightedSelectedTextColor = Color.gray;
-                }
+                var spellName = addedSpell.AsDictionary["spellName"].AsString;
+                var spellIndex = (int)addedSpell.AsDictionary["index"].AsInt64;
+                ListBox.AddItem($"+ [{spellIndex}] {spellName}", -1, spellIndex);
+                modNextSpellIndex = Mathf.Max(modNextSpellIndex, spellIndex + 1);
             }            
         }
 
@@ -156,16 +147,12 @@ namespace SpellEditorMod
             CloseWindow();
         }
 
-        private bool IsDisabled(int spellIndex)
+        private bool IsNewDisabled(int spellIndex)
         {
             if (spellIndex < 100)
                 return false;
 
-            var standardSpell = GameManager.Instance.EntityEffectBroker.StandardSpells.FirstOrDefault(record => record.index == spellIndex);
-            if (standardSpell == null)
-                return false;
-
-            return spellRecords == null || !spellRecords.TryGetValue(spellIndex, out fsData _);
+            return spellRecords.TryGetValue(spellIndex, out fsData _);
         }
 
         private void SetupButtons()
@@ -209,7 +196,7 @@ namespace SpellEditorMod
         private void TextNextSpellIndex_OnKeyboardEvent(BaseScreenComponent sender, Event keyboardEvent)
         {
             int nextId = int.Parse(textNextSpellIndex.ResultText);
-            if (nextId < 100 || IsDisabled(nextId))
+            if (IsNewDisabled(nextId))
             {
                 textNextSpellIndex.Cursor.Color = Color.red;
                 SetNewDisabled();
@@ -225,7 +212,7 @@ namespace SpellEditorMod
         private void TextNextSpellIndex_OnType()
         {
             int nextId = int.Parse(textNextSpellIndex.ResultText);
-            if(nextId < 100 || IsDisabled(nextId))
+            if(IsNewDisabled(nextId))
             {
                 textNextSpellIndex.Cursor.Color = Color.red;
                 SetNewDisabled();
@@ -240,7 +227,7 @@ namespace SpellEditorMod
 
         private void IncrementModIndex()
         {
-            while (IsDisabled(++modNextSpellIndex)) ;
+            while (IsNewDisabled(++modNextSpellIndex)) ;
 
             textNextSpellIndex.Text = modNextSpellIndex.ToString();
         }
@@ -303,14 +290,14 @@ namespace SpellEditorMod
                 if((int)ListBox.ListItems[i].tag > modNextSpellIndex)
                 {
                     added = true;
-                    ListBox.AddItem("+ " + spellData.AsDictionary["spellName"].AsString, i, modNextSpellIndex);
+                    ListBox.AddItem($"+ [{modNextSpellIndex}] {spellData.AsDictionary["spellName"].AsString}", i, modNextSpellIndex);
                     break;
                 }
             }
 
             if(!added)
             {
-                ListBox.AddItem("+ " + spellData.AsDictionary["spellName"].AsString, -1, modNextSpellIndex);
+                ListBox.AddItem($"+ [{modNextSpellIndex}] {spellData.AsDictionary["spellName"].AsString}", -1, modNextSpellIndex);
             }
 
             IncrementModIndex();
@@ -323,10 +310,17 @@ namespace SpellEditorMod
             if((int)ListBox.SelectedValue.tag == spellIndex)
                 SetRevertEnabled();
 
-            spellRecords[spellIndex] = spellData;
-
             var item = ListBox.ListItems.Find(i => (int)i.tag == spellIndex);
-            item.textLabel.Text = spellData.AsDictionary["spellName"].AsString + " (*)";
+            if(spellIndex < 100)
+            {
+                item.textLabel.Text = $"[{spellIndex}] {spellData.AsDictionary["spellName"].AsString} (*)";
+            }
+            else
+            {
+                item.textLabel.Text = $"+ [{spellIndex}] {spellData.AsDictionary["spellName"].AsString}";
+            }
+
+            spellRecords[spellIndex] = spellData;           
         }
 
         private void ListBox_OnSelectItem()
@@ -335,11 +329,6 @@ namespace SpellEditorMod
                 return;
 
             var spellIndex = (int)ListBox.SelectedValue.tag;
-            if(IsDisabled(spellIndex))
-            {
-                ListBox.SelectNone();
-                return;
-            }
 
             if(spellRecords.ContainsKey(spellIndex))
             {
@@ -354,8 +343,6 @@ namespace SpellEditorMod
         private void ListBox_OnUseSelectedItem()
         {
             var spellIndex = (int)ListBox.SelectedValue.tag;
-            if (IsDisabled(spellIndex))
-                return;
 
             var userInterfaceManager = DaggerfallUI.Instance.UserInterfaceManager;
             var BundleEditor = new SpellBundleEditor(userInterfaceManager, this);

@@ -1,9 +1,9 @@
 {
     "ModTitle": "Spell Editor",
-    "ModVersion": "0.1",
+    "ModVersion": "1.0",
     "ModAuthor": "Kab the Bird Ranger",
     "ContactInfo": "kaboissonneault@gmail.com",
-    "DFUnity_Version": "0.11.7",
+    "DFUnity_Version": "0.14.5",
     "ModDescription": "Edit standard spells from within the game",
     "GUID": "04343969-58b9-47e6-be39-242aaef4d909",
     "Files": [

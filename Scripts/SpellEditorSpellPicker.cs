@@ -29,6 +29,7 @@ namespace SpellEditorMod
         Button buttonNew;
         Button buttonRevert;
         Button buttonSave;
+        Button buttonDuplicate;
 
         TextBox textNextSpellIndex;
 
@@ -180,7 +181,14 @@ namespace SpellEditorMod
             buttonSave.BackgroundColor = Color.gray;
             buttonSave.Hotkey = new HotkeySequence(KeyCode.S, HotkeySequence.KeyModifiers.Ctrl);
 
-            textNextSpellIndex = DaggerfallUI.AddTextBoxWithFocus(new Rect(new Vector2(128, 0), new Vector2(32, 10)), string.Empty, panelButtons, 4);
+            buttonDuplicate = DaggerfallUI.AddButton(new Vector2(120, 0), new Vector2(32, 10), panelButtons);
+            buttonDuplicate.Label.Text = "Dupe";
+            buttonDuplicate.Label.TextColor = Color.gray / 2.0f; // Starts "Disabled"
+            buttonDuplicate.Label.VerticalAlignment = VerticalAlignment.Middle;
+            buttonDuplicate.BackgroundColor = Color.gray;
+            buttonDuplicate.Hotkey = new HotkeySequence(KeyCode.D, HotkeySequence.KeyModifiers.Ctrl);
+
+            textNextSpellIndex = DaggerfallUI.AddTextBoxWithFocus(new Rect(new Vector2(168, 0), new Vector2(32, 10)), string.Empty, panelButtons, 4);
             textNextSpellIndex.BackgroundColor = Color.gray;
             textNextSpellIndex.Numeric = true;
             textNextSpellIndex.NumericMode = NumericMode.Natural;
@@ -242,6 +250,11 @@ namespace SpellEditorMod
                 SetRevertEnabled();
             else
                 SetRevertDisabled();
+
+            if (ListBox.SelectedIndex == -1)
+                SetDupeDisabled();
+            else
+                SetDupeEnabled();
 
             SetSaveDisabled();
         }
@@ -326,7 +339,14 @@ namespace SpellEditorMod
         private void ListBox_OnSelectItem()
         {
             if (ListBox.SelectedIndex == -1)
+            {
+                SetDupeDisabled();
                 return;
+            }
+            else
+            {
+                SetDupeEnabled();
+            }
 
             var spellIndex = (int)ListBox.SelectedValue.tag;
 
@@ -488,6 +508,131 @@ namespace SpellEditorMod
         bool HasUnsavedChanges()
         {
             return buttonSave.Label.TextColor == DaggerfallUI.DaggerfallDefaultTextColor;
+        }
+
+        void SetDupeDisabled()
+        {
+            if (buttonDuplicate.Label.TextColor == Color.gray / 2.0f)
+                return;
+
+            buttonDuplicate.Label.TextColor = Color.gray / 2.0f;
+            buttonDuplicate.OnMouseClick -= OnDupeClick;
+        }
+
+        void SetDupeEnabled()
+        {
+            if (buttonDuplicate.Label.TextColor == DaggerfallUI.DaggerfallDefaultTextColor)
+                return;
+
+            buttonDuplicate.Label.TextColor = DaggerfallUI.DaggerfallDefaultTextColor;
+            buttonDuplicate.OnMouseClick += OnDupeClick;
+        }
+
+        void OnDupeClick(BaseScreenComponent sender, Vector2 position)
+        {
+            var originalSpellIndex = (int)ListBox.SelectedValue.tag;
+
+            var userInterfaceManager = DaggerfallUI.Instance.UserInterfaceManager;
+            var BundleEditor = new SpellBundleEditor(userInterfaceManager, this);
+
+
+            if (spellRecords != null && spellRecords.TryGetValue(originalSpellIndex, out fsData existingData))
+            {
+                var newData = fsData.CreateDictionary();
+                var fields = newData.AsDictionary;
+
+                var existingFields = existingData.AsDictionary;
+
+                fields["spellName"] = new fsData(existingFields["spellName"].AsString);
+                fields["element"] = new fsData(existingFields["element"].AsInt64);
+                fields["rangeType"] = new fsData(existingFields["rangeType"].AsInt64);
+                fields["cost"] = new fsData(existingFields["cost"].AsInt64);
+                fields["index"] = new fsData(modNextSpellIndex);
+                fields["icon"] = new fsData(existingFields["icon"].AsInt64);
+                var effects = fields["effects"] = fsData.CreateList();
+                foreach (fsData effectRecordData in existingFields["effects"].AsList)
+                {
+                    var existingRecordFields = effectRecordData.AsDictionary;
+                    
+                    var effect = fsData.CreateDictionary();
+                    var effectFields = effect.AsDictionary;
+
+                    effectFields.Add("type", new fsData(existingRecordFields["type"].AsInt64));
+                    effectFields.Add("subType", new fsData(existingRecordFields["subType"].AsInt64));
+
+                    fsData fieldValue;
+                    if(existingRecordFields.TryGetValue("durationBase", out fieldValue))
+                       effectFields.Add("durationBase", new fsData(fieldValue.AsInt64));
+                    if (existingRecordFields.TryGetValue("durationMod", out fieldValue))
+                        effectFields.Add("durationMod", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("durationPerLevel", out fieldValue))
+                       effectFields.Add("durationPerLevel", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("chanceBase", out fieldValue))
+                       effectFields.Add("chanceBase", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("chanceMod", out fieldValue))
+                       effectFields.Add("chanceMod", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("chancePerLevel", out fieldValue))
+                       effectFields.Add("chancePerLevel", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("magnitudeBaseLow", out fieldValue))
+                       effectFields.Add("magnitudeBaseLow", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("magnitudeBaseHigh", out fieldValue))
+                       effectFields.Add("magnitudeBaseHigh", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("magnitudeLevelBase", out fieldValue))
+                       effectFields.Add("magnitudeLevelBase", new fsData(fieldValue.AsInt64));
+                    if(existingRecordFields.TryGetValue("magnitudeLevelHigh", out fieldValue))
+                       effectFields.Add("magnitudeLevelHigh", new fsData(fieldValue.AsInt64));
+                    if (existingRecordFields.TryGetValue("magnitudePerLevel", out fieldValue))
+                        effectFields.Add("magnitudePerLevel", new fsData(fieldValue.AsInt64));
+
+                    effects.AsList.Add(effect);
+                }
+
+                BundleEditor.SpellData = newData;
+            }
+            else
+            {
+                var newData = fsData.CreateDictionary();
+                var fields = newData.AsDictionary;
+
+                var classicSpellRecord = classicSpellRecords[originalSpellIndex];
+
+                fields["spellName"] = new fsData(classicSpellRecord.spellName);
+                fields["element"] = new fsData(classicSpellRecord.element);
+                fields["rangeType"] = new fsData(classicSpellRecord.rangeType);
+                fields["cost"] = new fsData(classicSpellRecord.cost);
+                fields["index"] = new fsData(modNextSpellIndex);
+                fields["icon"] = new fsData(classicSpellRecord.icon);
+                var effects = fields["effects"] = fsData.CreateList();
+                foreach (EffectRecordData effectRecord in classicSpellRecord.effects)
+                {
+                    if (effectRecord.type == -1)
+                        continue;
+
+                    var effect = fsData.CreateDictionary();
+
+                    effect.AsDictionary.Add("type", new fsData(effectRecord.type));
+                    effect.AsDictionary.Add("subType", new fsData(effectRecord.subType));
+                    effect.AsDictionary.Add("durationBase", new fsData(effectRecord.durationBase));
+                    effect.AsDictionary.Add("durationMod", new fsData(effectRecord.durationMod));
+                    effect.AsDictionary.Add("durationPerLevel", new fsData(effectRecord.durationPerLevel));
+                    effect.AsDictionary.Add("chanceBase", new fsData(effectRecord.chanceBase));
+                    effect.AsDictionary.Add("chanceMod", new fsData(effectRecord.chanceMod));
+                    effect.AsDictionary.Add("chancePerLevel", new fsData(effectRecord.chancePerLevel));
+                    effect.AsDictionary.Add("magnitudeBaseLow", new fsData(effectRecord.magnitudeBaseLow));
+                    effect.AsDictionary.Add("magnitudeBaseHigh", new fsData(effectRecord.magnitudeBaseHigh));
+                    effect.AsDictionary.Add("magnitudeLevelBase", new fsData(effectRecord.magnitudeLevelBase));
+                    effect.AsDictionary.Add("magnitudeLevelHigh", new fsData(effectRecord.magnitudeLevelHigh));
+                    effect.AsDictionary.Add("magnitudePerLevel", new fsData(effectRecord.magnitudePerLevel));
+
+                    effects.AsList.Add(effect);
+                }
+
+                BundleEditor.SpellData = newData;
+            }
+            
+            BundleEditor.OnSpellConfirmed += BundleEditor_OnNewSpellConfirmed;
+
+            userInterfaceManager.PushWindow(BundleEditor);
         }
     }
 }

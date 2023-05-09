@@ -122,7 +122,8 @@ namespace SpellEditorMod
             {
                 if (spellRecords.TryGetValue(classicSpell.index, out fsData data))
                 {
-                    ListBox.AddItem($"[{classicSpell.index}] {classicSpell.spellName} (*)", -1, classicSpell.index);
+                    var spellName = data.AsDictionary["spellName"].AsString;
+                    ListBox.AddItem($"[{classicSpell.index}] {spellName} (*)", -1, classicSpell.index);
                 }
                 else
                 {
